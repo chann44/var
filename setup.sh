@@ -42,4 +42,4 @@ fi
 printf '\nSetup complete.\n'
 printf 'Next: edit hosts.json with your Macs’ Wi-Fi IP addresses and copy it to every Mac.\n'
 printf 'Activate this environment with: source .venv/bin/activate\n'
-printf 'See README.md for the rank 0 and worker commands.\n'
+printf 'See docs.md for the rank 0 and worker commands.\n'
