@@ -1,0 +1,32 @@
+{
+  "title": "A small beginning",
+  "voice": "Vivian",
+  "language": "English",
+  "speech_rate": 1.08,
+  "style": "Warm cinematic photography, natural light, consistent amber and blue palette. No text or watermarks.",
+  "width": 720,
+  "height": 1280,
+  "scenes": [
+    {
+      "id": "01",
+      "narration": "Every story begins with a small idea, waiting to be noticed.",
+      "image_prompt": "Close-up of a blank notebook and pencil on a wooden desk beside a sunlit window.",
+      "seed": 42,
+      "references": []
+    },
+    {
+      "id": "02",
+      "narration": "Give it a little attention, and something new starts to grow.",
+      "image_prompt": "A tiny green seedling growing in a terracotta pot beside the same sunlit window.",
+      "seed": 43,
+      "references": []
+    },
+    {
+      "id": "03",
+      "narration": "You do not need the whole picture. Just take the next step.",
+      "image_prompt": "A quiet garden path leading toward warm morning sunlight, hopeful and inviting.",
+      "seed": 44,
+      "references": []
+    }
+  ]
+}

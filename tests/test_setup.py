@@ -26,8 +26,9 @@ class SetupTests(unittest.TestCase):
         self.command("uv", '''
 printf 'uv %s\\n' "$*" >> "$SETUP_TEST_LOG"
 if [[ "$1" == venv ]]; then
-    mkdir -p .venv/bin
-    cp "$SETUP_TEST_PYTHON" .venv/bin/python
+    environment="${@: -1}"
+    mkdir -p "$environment/bin"
+    cp "$SETUP_TEST_PYTHON" "$environment/bin/python"
 elif [[ "${SETUP_TEST_INSTALL_FAIL:-0}" == 1 ]]; then
     exit 42
 fi
@@ -42,8 +43,8 @@ fi
         path.chmod(0o755)
         return path
 
-    def run_setup(self):
-        return subprocess.run(["/bin/bash", str(self.project / "setup.sh")],
+    def run_setup(self, *arguments):
+        return subprocess.run(["/bin/bash", str(self.project / "setup.sh"), *arguments],
                               cwd=self.path, env=self.env, capture_output=True, text=True, timeout=10)
 
     def test_setup_from_another_directory_and_rerun_preserves_files(self):
@@ -85,6 +86,24 @@ fi
         result = self.run_setup()
         self.assertEqual(result.returncode, 1)
         self.assertIn("Apple silicon", result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_media_setup_uses_an_isolated_environment_without_downloading_models(self):
+        self.command("ffmpeg", "exit 0")
+        self.command("ffprobe", "exit 0")
+        result = self.run_setup("media")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.log.read_text()
+        self.assertIn("uv venv --python 3.12 .venv-media", commands)
+        self.assertIn("uv pip install --python .venv-media/bin/python -r requirements-media.txt", commands)
+        self.assertIn("python -m unittest discover -s tests -p test_studio.py -v", commands)
+        self.assertNotIn("engine.py", commands)
+        self.assertFalse((self.project / ".venv").exists())
+
+    def test_unknown_setup_mode_has_no_side_effects(self):
+        result = self.run_setup("unknown")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Usage:", result.stderr)
         self.assertFalse(self.log.exists())
 
 

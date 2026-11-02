@@ -1,6 +1,9 @@
 .venv/
+.venv-media/
+/projects/
 __pycache__/
 *.py[cod]
 .DS_Store
 hosts.json
 *-report.json
+projects

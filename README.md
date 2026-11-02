@@ -2,33 +2,35 @@
 
 # var
 
-Distributed model inference across a few Macs.
+Scripts, references, and local models → narrated videos on your Macs.
 
-`var` splits a model's layers across two or three Apple silicon Macs over Wi-Fi.
-Send a prompt to one Mac and stream the answer back in its terminal.
-
-Built with **Python and MLX**, starting with a small **Qwen2.5 0.5B** model.
-The goal is to explore shared model capacity and measure the cost of communicating
-between machines.
+`studio.py` turns a scene script into voice audio, generated images, and an MP4
+with gentle camera movement, fades, and captions. Regenerate individual scenes
+while keeping the parts you like.
 
 ## Get started
 
-Copy the project to each Mac, then run:
-
 ```sh
-./setup.sh
-source .venv/bin/activate
+./setup.sh media
+source .venv-media/bin/activate
+python studio.py init projects/my-video
 ```
 
-Setup installs dependencies, runs checks, downloads the model, and creates
-`hosts.json`. Add your Macs' Wi-Fi IPs, then follow the
-[cluster setup instructions](docs.md#2-connect-the-macs).
+Edit `projects/my-video/project.json` with your narration, image prompts, and
+reference paths, then run:
 
-## Status
+```sh
+python studio.py build projects/my-video
+```
 
-Experimental: one prompt per run. Every Mac downloads the full model to disk;
-transformer layers are split in memory. Use a trusted private network.
-Faster generation and larger-model capacity still need hardware validation.
+The result is `projects/my-video/final.mp4`. See [the media guide](docs.md#narrated-videos)
+for your own scripts, references, and scene revisions.
 
-See [docs.md](docs.md) for architecture, worker commands, benchmarks, options,
-and tests.
+## Distributed inference
+
+`engine.py` experiments with splitting a Qwen text model across two or three
+Apple silicon Macs. [Setup and commands](docs.md#distributed-text-inference).
+
+Media generation currently runs locally per stage. You can run narration and
+images on separate Macs and copy their assets together; media model weights
+are not yet split across machines. Quality and throughput need hardware testing.
