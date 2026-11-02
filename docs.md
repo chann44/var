@@ -2,6 +2,12 @@
 
 [Back to the overview](README.md).
 
+## Research roadmap
+
+See [natural voice and smooth video](research/natural-voice-and-video.md) for the
+local/cloud voice landscape, narration-first architecture, listening tests, and
+an implementation order grounded in the current Lisp short.
+
 ## Narrated videos
 
 The first media workflow produces videos from still images with gentle zooms,
