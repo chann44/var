@@ -11,6 +11,8 @@ import sys
 import tempfile
 import unittest
 
+from model_fixture import make_tokenizer
+
 
 ROOT = Path(__file__).resolve().parents[1]
 HAS_MLX = importlib.util.find_spec("mlx") is not None and importlib.util.find_spec("mlx_lm") is not None
@@ -27,25 +29,18 @@ class InferenceTests(unittest.TestCase):
             raise
         from mlx.utils import tree_flatten
         from mlx_lm.models.qwen2 import Model, ModelArgs
-        from tokenizers import Tokenizer, models, pre_tokenizers
-        from transformers import PreTrainedTokenizerFast
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
+            tokenizer = make_tokenizer()
             config = dict(model_type="qwen2", hidden_size=32, num_hidden_layers=7,
                           intermediate_size=64, num_attention_heads=4, num_key_value_heads=2,
-                          rms_norm_eps=1e-6, vocab_size=16, tie_word_embeddings=False)
+                          rms_norm_eps=1e-6, vocab_size=len(tokenizer), tie_word_embeddings=False)
             mx.random.seed(0)
             model = Model(ModelArgs.from_dict(config))
-            model.lm_head.weight = model.lm_head.weight.at[15].multiply(0)
+            model.lm_head.weight = model.lm_head.weight.at[tokenizer.eos_token_id].multiply(0)
             mx.save_safetensors(str(path / "model.safetensors"), dict(tree_flatten(model.parameters())))
             (path / "config.json").write_text(json.dumps(config))
-            vocab = {"[UNK]": 0, "hello": 1, "world": 2,
-                     **{f"word{i}": i for i in range(3, 15)}, "[EOS]": 15}
-            backend = Tokenizer(models.WordLevel(vocab, unk_token="[UNK]"))
-            backend.pre_tokenizer = pre_tokenizers.Whitespace()
-            tokenizer = PreTrainedTokenizerFast(tokenizer_object=backend, unk_token="[UNK]", eos_token="[EOS]")
-            tokenizer.chat_template = "{{ messages[0]['content'] }}"
             tokenizer.save_pretrained(path)
             base = [sys.executable, str(ROOT / "engine.py"), "--timeout", "90"]
             prompt = ["--model", str(path), "--prompt", "hello world", "--max-tokens", "4"]
