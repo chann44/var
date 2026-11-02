@@ -1,102 +1,169 @@
-# Distributed Mac inference experiment
+<img src="assets/var.svg" alt="var" width="280" />
 
-Run one Qwen2/Qwen2.5 text model across two or three Apple silicon Macs over Wi-Fi.
-Each Mac retains a different group of transformer layers. Rank 0 accepts a prompt
-and streams the answer in its terminal. Start with the default small 4-bit
-Qwen2.5 0.5B model so we can compare against a single-Mac baseline.
+# var
 
-This is an experimental runner around [MLX-LM's pipeline support](https://github.com/ml-explore/mlx-lm/pull/1862)
-and [MLX's TCP ring backend](https://ml-explore.github.io/mlx/build/html/usage/distributed.html).
-It is not a new tensor runtime. More Macs provide room for weights; faster generation
-is an experimental question, especially over Wi-Fi.
+Distributed model inference across a few Macs.
 
-## Setup on each Mac
+`var` splits a model's transformer layers across two or three Apple silicon Macs
+and runs them together over Wi-Fi. Send a prompt to one Mac and watch the answer
+stream back in its terminal.
 
-Requirements: Apple silicon, a current macOS supported by MLX 0.32.4, and internet
-access. Copy these project files, including `setup.sh` and `tests/`, to each Mac,
-then run:
+Think of it as a small experiment in making separate Macs act as one inference
+engine. Each machine keeps part of the model in memory and passes intermediate
+results to the next.
+
+The first version uses **Python, MLX, and Qwen2/Qwen2.5 text models**. The default
+is `mlx-community/Qwen2.5-0.5B-Instruct-4bit`, small enough to compare against a
+single Mac.
+
+## Why
+
+With several Macs available, there are a few questions worth testing:
+
+- Can one model generate correctly with its layers on different machines?
+- How much model memory does each Mac actually need?
+- What does Wi-Fi add to first-token latency and generation time?
+- Could the same approach eventually run a model too large for one Mac?
+
+`var` makes the first experiment small: fixed addresses, one prompt, and reports
+that let you compare distributed execution with a local baseline. More machines
+can provide room for weights; whether they improve speed needs measurement.
+
+## How it works
+
+One process runs on each Mac. **Rank 0** is the coordinator: it shares the prompt
+with the workers, selects each next token, and prints the response.
+
+For three Macs, transformer layers run in this order:
+
+```text
+Mac 3 · rank 2       Mac 2 · rank 1       Mac 1 · rank 0
+ first layers   →    middle layers   →    final layers   →   next token
+```
+
+The process repeats until the model finishes or reaches the output limit.
+Attention caches stay with the layers that own them.
+
+Execution uses [MLX-LM's pipeline support](https://github.com/ml-explore/mlx-lm/pull/1862)
+with [MLX's TCP ring backend](https://ml-explore.github.io/mlx/build/html/usage/distributed.html).
+Every Mac currently downloads the **full checkpoint to disk**, then retains only
+its assigned transformer layers in memory. Embeddings, final normalization, and
+output weights are replicated, so memory does not divide into exact thirds.
+
+## Getting started
+
+You need two or three Apple silicon Macs, a macOS version supported by MLX 0.32.4,
+internet access for setup, and a trusted local network.
+
+### 1. Set up each Mac
+
+Copy the project, including `setup.sh` and `tests/`, to every Mac. Create each
+machine's environment locally rather than copying `.venv`. From the project folder:
 
 ```sh
 ./setup.sh
 source .venv/bin/activate
 ```
 
-The script installs [uv](https://docs.astral.sh/uv/getting-started/installation/)
-if needed, creates a Python 3.12 environment, installs dependencies, runs tests,
-and downloads the default model by generating a short response. If Git is missing,
-it opens Apple's command line tools installer; finish that installer and rerun
-`./setup.sh`. Existing environments and `hosts.json` are preserved. An existing
-environment must use native arm64 Python 3.12. Setup can also be invoked from
-another directory as `bash /path/to/var/setup.sh`.
+Setup installs uv if needed, creates a Python 3.12 environment, installs
+dependencies, runs tests, and downloads the default model by generating a short
+response. Existing environments and `hosts.json` are preserved. An existing
+environment must use native arm64 Python 3.12.
 
-Setup creates `hosts.json` from the example when missing. Replace its example
-addresses with your actual Wi-Fi IPs and use the same file on every Mac.
+If Git is missing, setup opens Apple's command line tools installer. Finish the
+installer and rerun `./setup.sh`. From another directory, use
+`bash /path/to/var/setup.sh`.
 
-The MLX-LM commit is pinned because the released 0.31.3 package lacks Qwen2
-pipeline support. Use the same requirements on every Mac. The first model load
-needs internet access and stores a checkpoint in the Hugging Face cache.
+Dependencies are defined in [requirements.txt](requirements.txt). The MLX-LM
+commit is pinned to include Qwen2 pipeline support; use the same requirements
+and checkpoint on every Mac.
 
-## First: baseline and download
+### 2. Connect the Macs
 
-Run this on each Mac before connecting the cluster, to download the model and
-verify that local inference works. Downloads are excluded from generation timings.
+Find each Wi-Fi IPv4 address in **System Settings → Wi-Fi → Details → TCP/IP**.
+Replace the example addresses in the `hosts.json` created by setup:
 
-```sh
-python engine.py --prompt "Explain why the sky is blue in two sentences." --report baseline-report.json
+```json
+[
+  ["192.168.1.10:5500"],
+  ["192.168.1.11:5500"],
+  ["192.168.1.12:5500"]
+]
 ```
 
-Only the response goes to stdout. Layer assignments and measurements go to stderr
-and, when requested, the JSON report. Reports include generated token IDs for
-comparing single-Mac and distributed results. Sampling is greedy.
+Use the **same file in the same order** on every Mac. The first entry is rank 0.
+For two Macs, remove the third entry. If configuring manually, start with
+[hosts.example.json](hosts.example.json).
 
-## Run across three Macs
+Keep the Macs awake and allow incoming Python connections if macOS asks. Guest
+Wi-Fi with client isolation can block communication. SSH is not required.
 
-1. Find each Mac's Wi-Fi IPv4 address in System Settings → Wi-Fi → Details → TCP/IP.
-2. Edit the `hosts.json` created by setup, replacing the example addresses.
-   If you skipped setup, copy `hosts.example.json` to `hosts.json` first.
-   Give **every Mac the identical file in the identical order**. For two Macs,
-   remove the third entry. Each entry is one rank; the port can remain `5500`.
-3. Connect to the same trusted network, keep all Macs awake, and allow incoming
-   connections to Python if macOS asks. Guest Wi-Fi/client isolation can prevent
-   Macs from communicating. Remote Login/SSH is not needed.
-4. Activate the environment and start one command on each Mac, within ten minutes:
+### 3. Start the workers
 
-Mac 2:
+On Mac 2:
 
 ```sh
 python engine.py --hosts hosts.json --rank 1 --report rank1-report.json
 ```
 
-Mac 3:
+On Mac 3, if using three Macs:
 
 ```sh
 python engine.py --hosts hosts.json --rank 2 --report rank2-report.json
 ```
 
-Mac 1 (the only machine receiving the prompt):
+### 4. Send a prompt
+
+On Mac 1, start rank 0 within ten minutes of starting the workers:
 
 ```sh
-python engine.py --hosts hosts.json --rank 0 --prompt "Explain why the sky is blue in two sentences." --report distributed-report.json
+python engine.py --hosts hosts.json --rank 0 \
+  --prompt "Explain why the sky is blue in two sentences." \
+  --report distributed-report.json
 ```
 
-Each process exits after this answer. Start all ranks again for another prompt.
-Use `--max-tokens 128` on rank 0 to change the output limit, or `--model` for
-another Qwen2/Qwen2.5 MLX checkpoint. Model names/paths are sent to workers;
-local paths must exist on every Mac. All ranks must use the same checkpoint.
-Use `--timeout 1200` on **each** Mac if a run needs a longer deadline.
+The response streams to this terminal. Each process exits after one answer;
+restart all ranks for another prompt or after a failure.
 
-## What to measure
+## Compare with one Mac
 
-- Compare `generated_token_ids` in the baseline and distributed reports. They
-  should normally match for this greedy run; differences require investigation.
-- Check that layer lists across ranks cover every layer exactly once. MLX puts
-  the first layers on the highest rank and the final layers on rank 0.
-- Compare `first_token_seconds`, `decode_tokens_per_second`, `weight_bytes`,
-  and `peak_memory_bytes`. Peak memory is MLX allocation, not total system RAM;
-  decode speed excludes prefill and includes network and terminal overhead.
-- Disconnect a worker during a longer run: an error or the deadline should end
-  each process. Restart every rank together after an error. Exit code `124`
-  means the local deadline expired.
+Run the same prompt without the hostfile:
+
+```sh
+python engine.py \
+  --prompt "Explain why the sky is blue in two sentences." \
+  --report baseline-report.json
+```
+
+Sampling is greedy. Compare `generated_token_ids` between the baseline and
+cluster reports; differences need investigation. Across the worker reports,
+layer lists should cover every layer exactly once.
+
+Each rank can write a JSON report with:
+
+| Field | What it measures |
+| --- | --- |
+| `layers` | Transformer layers retained by this rank |
+| `weight_bytes` | Retained model weight storage |
+| `first_token_seconds` | Time from generation start to the first token |
+| `decode_tokens_per_second` | Decode rate, including network and terminal overhead |
+| `peak_memory_bytes` | Peak MLX allocation, rather than total system RAM |
+
+Model loading is excluded from generation timings; decode rate excludes prefill.
+The response goes to stdout, and diagnostics go to stderr.
+
+## Options
+
+```sh
+python engine.py --help
+```
+
+- `--model`: a Qwen2/Qwen2.5 MLX repository or local checkpoint path, set on rank 0.
+  Local paths must exist on every Mac.
+- `--max-tokens`: output limit, set on rank 0; defaults to `64`.
+- `--timeout`: whole-run deadline in seconds; defaults to `600`. Set it on every
+  Mac when allowing longer runs. Exit code `124` means the deadline expired.
+- `--report`: optional JSON report path, local to each rank.
 
 ## Tests
 
@@ -104,23 +171,21 @@ Use `--timeout 1200` on **each** Mac if a run needs a longer deadline.
 python -m unittest discover -s tests -v
 ```
 
-Configuration and deadline tests use only the standard library. With MLX installed,
-the integration test creates a tiny random seven-layer model locally and checks
-two- and three-process inference against the single-process token sequence. It
-also checks complete, non-overlapping layer ownership and reduced per-rank weight
-storage. It requires no model download. Without MLX, it is explicitly skipped.
+The suite checks configuration validation, process deadlines, and setup behavior.
+With MLX and a Metal GPU available, an integration test creates a tiny seven-layer
+model and compares two- and three-process generation with a single process. It
+also checks layer ownership and per-rank weight storage. No model download is
+needed for this test; it is skipped when MLX or Metal is unavailable.
 
-## Limits of this first experiment
+## Current limits
 
-- One request per run, fixed addresses, at most 2048 prompt tokens and 1024 output
-  tokens. No automatic worker discovery, batching, or recovery.
-- Every Mac downloads the complete checkpoint to disk. Loading is lazy and layers
-  are removed before materializing weights, but embeddings, final normalization,
-  and the output head are replicated. Memory will not divide into exact thirds.
-- The small model intentionally fits on one Mac. A larger-than-one-Mac model is
-  the next experiment after real three-Mac correctness and memory checks pass.
-- TCP traffic has no authentication or encryption: use only a trusted private
-  network and keep the port off the public internet.
-- Tests on one Mac do not establish three-Mac Wi-Fi performance or reliability.
+- One request per run, with fixed worker addresses and no automatic recovery.
+- At most 2048 prompt tokens, 16 KiB of prompt text, and 1024 output tokens.
+- Full checkpoint downloads on every Mac; partial downloads are deferred.
+- TCP traffic has no authentication or encryption. Use a trusted private network
+  and keep the port off the public internet.
+- The default model fits on one Mac. Larger-model capacity and three-Mac Wi-Fi
+  performance still need hardware validation.
 
-Source is in `engine.py`; tests are in `tests/`. `AGENTS.md` is preserved unchanged.
+The runner lives in [engine.py](engine.py), setup in [setup.sh](setup.sh), and
+checks in [tests/](tests/).
