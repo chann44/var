@@ -1,0 +1,3 @@
+mlx==0.32.4
+# Qwen2 pipeline support landed after the 0.31.3 release.
+mlx-lm @ git+https://github.com/ml-explore/mlx-lm.git@d8f7f88d8a1f730a761a49f59b2d547ce571f431
